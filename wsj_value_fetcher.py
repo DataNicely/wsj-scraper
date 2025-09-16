@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# -- coding: utf-8 --
 
 import argparse
 import os
@@ -11,10 +11,8 @@ import random
 import gspread
 from google.oauth2.service_account import Credentials
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-from playwright_stealth import stealth_sync
 
 WSJ_URL = "https://www.wsj.com/market-data/quotes/fx/USDCNY/historical-prices#"
-STATE_FILE = "session_state.json"
 
 def _parse_number(txt: str):
     if txt is None: return None
@@ -45,18 +43,13 @@ def _parse_wsj_date(txt: str):
 def fetch_latest_from_wsj(timeout_ms: int = 60000, headless: bool = True):
     print(f"Launching browser (headless={headless})...")
 
-    if not os.path.exists(STATE_FILE):
-        raise FileNotFoundError(f"Session file '{STATE_FILE}' does not exist. "
-                                f"Please run 'python wsj_debug.py' first to create the session.")
-
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=headless,
             args=["--disable-blink-features=AutomationControlled"]
         )
-        
+    
         context = browser.new_context(
-            storage_state=STATE_FILE,
             user_agent=(
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
@@ -66,7 +59,7 @@ def fetch_latest_from_wsj(timeout_ms: int = 60000, headless: bool = True):
         
         page = context.new_page()
 
-        print(f"Navigating to {WSJ_URL} (robust loading strategy)...")
+        print(f"Navigating to {WSJ_URL} with a fresh session...")
         try:
             page.goto(WSJ_URL, wait_until="domcontentloaded", timeout=timeout_ms)
 
@@ -77,19 +70,16 @@ def fetch_latest_from_wsj(timeout_ms: int = 60000, headless: bool = True):
         except Exception as e:
             print(f"CRITICAL error during page load or initial table location: {e}")
             page.screenshot(path="wsj_load_error.png")
-            raise RuntimeError("The page did not load the table container in time.")
+            raise RuntimeError("The page did not load the table container in time. The site might be blocking the request.")
 
         print("Table container located. Scrolling...")
         try:
             table_container_locator.scroll_into_view_if_needed()
             page.wait_for_timeout(2000)
-
             table = table_container_locator.locator("table.cr_dataTable")
-
             print("Waiting for data rows to load...")
             table.locator("tbody tr").first.wait_for(state="visible", timeout=15000)
             print("Success! Data loaded in the table.")
-
         except Exception as e:
             print(f"Error scrolling or loading table data: {e}")
             page.screenshot(path="wsj_data_load_error.png")
