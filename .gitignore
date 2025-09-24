@@ -1,0 +1,7 @@
+.venv/
+venv/
+*.venv
+
+session_state.json
+google_creds.json
+wsj-sa.json

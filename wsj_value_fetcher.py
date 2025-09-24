@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-# -- coding: utf-8 --
+# -*- coding: utf-8 -*-
 
-import argparse
 import os
 import re
 import sys
@@ -10,7 +9,7 @@ import random
 
 import gspread
 from google.oauth2.service_account import Credentials
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 
 WSJ_URL = "https://www.wsj.com/market-data/quotes/fx/USDCNY/historical-prices#"
 
@@ -48,13 +47,13 @@ def fetch_latest_from_wsj(timeout_ms: int = 60000, headless: bool = True):
             headless=headless,
             args=["--disable-blink-features=AutomationControlled"]
         )
-    
+        
         context = browser.new_context(
             user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
             ),
-            viewport={"width": 1280, "height": 800}
+            viewport={"width": 1920, "height": 1080}
         )
         
         page = context.new_page()
@@ -62,8 +61,8 @@ def fetch_latest_from_wsj(timeout_ms: int = 60000, headless: bool = True):
         print(f"Navigating to {WSJ_URL} with a fresh session...")
         try:
             page.goto(WSJ_URL, wait_until="domcontentloaded", timeout=timeout_ms)
-
-            print("Base page loaded. Waiting for the table container to appear in the HTML...")
+            print("Base page loaded. Waiting for the table container to appear...")
+            
             table_container_locator = page.locator("div#historical_data_table")
             table_container_locator.wait_for(state="attached", timeout=timeout_ms - 5000)
 
@@ -100,7 +99,7 @@ def fetch_latest_from_wsj(timeout_ms: int = 60000, headless: bool = True):
 
         if not date_iso or close_val is None:
             raise RuntimeError(f"Could not parse Date='{date_txt}' or Close='{close_val}' from WSJ.")
-
+            
         browser.close()
         return date_iso, close_val
 
@@ -112,7 +111,7 @@ def get_gspread_client(service_account_json: str = None):
     else:
         env = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
         if not env or not os.path.exists(env):
-            raise RuntimeError("JSON service account not found. Use --service-account-json or GOOGLE_APPLICATION_CREDENTIALS.")
+            raise RuntimeError("JSON service account not found.")
         creds = Credentials.from_service_account_file(env, scopes=SCOPES)
     return gspread.authorize(creds)
 
@@ -120,20 +119,16 @@ def ensure_header(ws):
     header = ["date","close","source","retrieved_at_utc"]
     current = ws.row_values(1)
     if [c.lower() for c in current] != header:
-        print("Header does not match or is empty. Setting standard header.")
         ws.clear()
         ws.append_row(header, value_input_option="RAW")
-    else:
-        print("Existing header matches.")
 
 def append_if_new(ws, date_iso, close_val, source):
     rows = ws.get_all_values()
     existing = [r[0] for r in rows[1:]] if len(rows) > 1 else []
     if date_iso in existing:
-        print(f"{date_iso} already exists in the spreadsheet — not inserting.")
+        print(f"{date_iso} already exists — not inserting.")
         return False
     retrieved = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    print(f"Inserting new row: {date_iso}, {close_val}, {source}, {retrieved}")
     ws.append_row([date_iso, close_val, source, retrieved], value_input_option="USER_ENTERED")
     return True
 
@@ -152,22 +147,17 @@ def main():
     sh = client.open_by_key(sheet_id)
     try:
         ws = sh.worksheet("USDCNY")
-        print("Worksheet 'USDCNY' found.")
     except gspread.exceptions.WorksheetNotFound:
-        print("Worksheet 'USDCNY' not found. Creating it...")
         ws = sh.add_worksheet(title="USDCNY", rows=1000, cols=10)
-        print("Worksheet 'USDCNY' created.")
 
     ensure_header(ws)
     inserted = append_if_new(ws, date_iso, close_val, WSJ_URL)
     if inserted:
         print("Data inserted successfully.")
-    else:
-        print("No data inserted (already exists or there was a problem).")
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print("\nERROR CRÍTICO:", e)
+        print(f"\nCRITICAL ERROR: {e}")
         sys.exit(1)

@@ -1,0 +1,45 @@
+name: Fetch WSJ daily value extraction
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4,5 * * *' # 11 PM Nebraska Time
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright Browsers
+        run: playwright install --with-deps
+
+      - name: Create Google Credentials File
+        env:
+          CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: python -c "import os; f = open('google_creds.json', 'w'); f.write(os.environ['CREDENTIALS_JSON']); f.close()"
+
+
+      - name: Run Python Scraper
+        env:
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          GOOGLE_APPLICATION_CREDENTIALS: ./google_creds.json
+        run: python wsj_value_fetcher.py
+
+      - name: Upload Screenshot on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-screenshot
+          path: "*.png"
